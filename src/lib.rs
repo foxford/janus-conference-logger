@@ -36,6 +36,7 @@ struct JsonMessage<'a> {
 enum SourceWithTags {
     Core(CoreTags),
     Conference(ConferenceTags),
+    Unknown { logger_error: String },
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -73,13 +74,20 @@ impl Message {
     fn to_json_message<'a>(&'a self) -> JsonMessage<'a> {
         let ts = self.timestamp().with_timezone(&Local).to_rfc3339();
         let (level, rest) = self.extract_level();
-        let (source_with_tags, rest) = Self::extract_source_with_tags(rest);
 
-        JsonMessage {
-            ts,
-            level,
-            source_with_tags,
-            msg: rest.trim(),
+        match Self::extract_source_with_tags(rest) {
+            Ok((source_with_tags, rest)) => JsonMessage {
+                ts,
+                level,
+                source_with_tags,
+                msg: rest.trim(),
+            },
+            Err(err) => JsonMessage {
+                ts,
+                level,
+                source_with_tags: SourceWithTags::Unknown { logger_error: err },
+                msg: rest.trim(),
+            },
         }
     }
 
@@ -102,22 +110,29 @@ impl Message {
         ("INFO", &self.line)
     }
 
-    fn extract_source_with_tags(line: &str) -> (SourceWithTags, &str) {
+    fn extract_source_with_tags(line: &str) -> Result<(SourceWithTags, &str), String> {
         if let Some(captures) = CONFERENCE_REGEX.captures(line) {
-            let tags = captures.get(1).map(|c| c.as_str()).unwrap_or("{}");
+            let tags = captures
+                .get(1)
+                .ok_or_else(|| String::from("Failed to get conference tags"))?
+                .as_str();
 
             let parsed_tags = serde_json::from_str::<ConferenceTags>(tags)
-                .unwrap_or_else(|_err| ConferenceTags::default());
+                .map_err(|err| format!("Failed to parse conference tags '{}': {}", tags, err))?;
 
-            let rest = captures.get(2).map(|c| c.as_str()).unwrap_or("");
-            (SourceWithTags::Conference(parsed_tags), rest)
+            let rest = captures
+                .get(2)
+                .ok_or_else(|| String::from("Failed to get the rest of conference message"))?
+                .as_str();
+
+            Ok((SourceWithTags::Conference(parsed_tags), rest))
         } else {
-            let (tags, rest) = Self::extract_core_tags(line);
-            (SourceWithTags::Core(tags), rest)
+            let (tags, rest) = Self::extract_core_tags(line)?;
+            Ok((SourceWithTags::Core(tags), rest))
         }
     }
 
-    fn extract_core_tags(line: &str) -> (CoreTags, &str) {
+    fn extract_core_tags(line: &str) -> Result<(CoreTags, &str), String> {
         let mut tags = CoreTags::default();
         let mut rest = line;
 
@@ -127,11 +142,15 @@ impl Message {
                     tags.handle_id = Some(handle_id);
                     let prefix = format!("[{}] ", handle_id);
                     rest = rest.strip_prefix(&prefix).unwrap_or(rest);
+                } else {
+                    return Err(String::from("Failed to parse handle id"));
                 }
+            } else {
+                return Err(String::from("Failed to get handle id"));
             }
         }
 
-        (tags, rest)
+        Ok((tags, rest))
     }
 }
 
