@@ -18,12 +18,8 @@ use serde_json::{json, Value as JsonValue};
 lazy_static! {
     static ref CORE_HANDLE_ID_REGEX: Regex =
         Regex::new(r"\A\[(\d+)\]").expect("Failed to compile regex");
-
-    static ref CONFERENCE_HANDLE_ID_REGEX: Regex =
-        Regex::new(r"session (\d+)").expect("Failed to compile regex"); // sic: session
-
-    static ref CONFERENCE_RTC_ID_REGEX: Regex =
-        Regex::new(r"stream ([\da-f\-]{36})").expect("Failed to compile regex");
+    static ref CONFERENCE_REGEX: Regex =
+        Regex::new(r"\A\[CONFERENCE (\{.+\})\] (.+)").expect("Failed to compile regex");
 }
 
 #[derive(Debug, Serialize)]
@@ -48,12 +44,16 @@ struct CoreTags {
     handle_id: Option<usize>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct ConferenceTags {
     #[serde(skip_serializing_if = "Option::is_none")]
     handle_id: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     rtc_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transaction: Option<String>,
 }
 
 #[derive(Debug)]
@@ -103,9 +103,14 @@ impl Message {
     }
 
     fn extract_source_with_tags(line: &str) -> (SourceWithTags, &str) {
-        if let Some(rest) = line.strip_prefix("[CONFERENCE] ") {
-            let (tags, rest) = Self::extract_conference_tags(rest);
-            (SourceWithTags::Conference(tags), rest)
+        if let Some(captures) = CONFERENCE_REGEX.captures(line) {
+            let tags = captures.get(1).map(|c| c.as_str()).unwrap_or("{}");
+
+            let parsed_tags = serde_json::from_str::<ConferenceTags>(tags)
+                .unwrap_or_else(|_err| ConferenceTags::default());
+
+            let rest = captures.get(2).map(|c| c.as_str()).unwrap_or("");
+            (SourceWithTags::Conference(parsed_tags), rest)
         } else {
             let (tags, rest) = Self::extract_core_tags(line);
             (SourceWithTags::Core(tags), rest)
@@ -127,26 +132,6 @@ impl Message {
         }
 
         (tags, rest)
-    }
-
-    fn extract_conference_tags(line: &str) -> (ConferenceTags, &str) {
-        let mut tags = ConferenceTags::default();
-
-        if let Some(captures) = CONFERENCE_HANDLE_ID_REGEX.captures(line) {
-            if let Some(capture) = captures.get(1) {
-                if let Ok(handle_id) = capture.as_str().parse::<usize>() {
-                    tags.handle_id = Some(handle_id);
-                }
-            }
-        }
-
-        if let Some(captures) = CONFERENCE_RTC_ID_REGEX.captures(line) {
-            if let Some(capture) = captures.get(1) {
-                tags.rtc_id = Some(capture.as_str().to_owned());
-            }
-        }
-
-        (tags, line)
     }
 }
 

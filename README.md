@@ -24,13 +24,13 @@ general: {
 
 ```bash
 VERSION=`cargo read-manifest | jq -r '.version'`
-docker build -f docker/Dockerfile -t netologygroup/janus-conference-logger:${VERSION} .
+docker build -f docker/Dockerfile -t netologygroup/janus-conference-logger:v${VERSION} .
 ```
 
 Then copy the build artifact into the target Janus Gateway image:
 
 ```dockerfile
-COPY --from=netologygroup/janus-conference-logger:${VERSION} \
+COPY --from=netologygroup/janus-conference-logger:v${VERSION} \
     /build/target/release/libjanus_conference_logger.so \
     /opt/janus/lib/janus/loggers/libjanus_conference_logger.so
 ```
