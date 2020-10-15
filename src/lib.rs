@@ -19,7 +19,7 @@ lazy_static! {
     static ref CORE_HANDLE_ID_REGEX: Regex =
         Regex::new(r"\A\[(\d+)\]").expect("Failed to compile regex");
     static ref CONFERENCE_REGEX: Regex =
-        Regex::new(r"\A\[CONFERENCE (\{.+\})\] (.+)").expect("Failed to compile regex");
+        Regex::new(r"\A\[CONFERENCE (\{.*\})\] (.+)").expect("Failed to compile regex");
 }
 
 #[derive(Debug, Serialize)]
